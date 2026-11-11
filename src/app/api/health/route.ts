@@ -25,8 +25,8 @@ export async function GET() {
     database: { ok: !db.error, messageCount: db.count ?? 0, error: db.error?.message },
     gemini: ai,
     models: {
-      primary: process.env.GEMINI_MODEL || "gemini-flash-latest",
-      fallback: process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-lite-latest",
+      primary: process.env.GEMINI_MODEL || "gemini-flash-lite-latest",
+      fallback: process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-latest",
     },
   });
 }

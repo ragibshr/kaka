@@ -7,8 +7,8 @@ const BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 /** Models to try in order. Aliases always point to Google's current Flash models. */
 function modelChain(): string[] {
-  const primary = process.env.GEMINI_MODEL || "gemini-flash-latest";
-  const fallback = process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-lite-latest";
+  const primary = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
+  const fallback = process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-latest";
   return primary === fallback ? [primary] : [primary, fallback];
 }
 

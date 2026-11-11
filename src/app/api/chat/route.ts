@@ -5,7 +5,7 @@ import { generate } from "@/ai/gemini";
 import { extractItems, saveItems } from "@/ai/extract";
 import { buildChatSystemPrompt } from "@/ai/prompts";
 import { buildTodaySummary } from "@/lib/summary";
-import { logApiCall } from "@/lib/logger";
+import { logApiCall, logGeneration } from "@/lib/logger";
 import { isValidTimeZone, localIso } from "@/lib/time";
 import type { ChatApiResponse, ChatMessage } from "@/ai/types";
 
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   let clarify: string[] = [];
   try {
     const ex = await extractItems(text, timeZone);
-    void logApiCall(supabase, { provider: ex.model, endpoint: "extract", status: 200, latencyMs: ex.latencyMs, error: null });
+    await logGeneration(supabase, "extract", ex);
     const res = await saveItems(supabase, ex.items, {
       rawText: text,
       sourceMessageId: userMsg?.id ?? null,
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     saved = res.saved;
     clarify = res.clarify;
   } catch (err) {
-    void logApiCall(supabase, { provider: "gemini", endpoint: "extract", status: 500, latencyMs: 0, error: (err as Error).message });
+    await logApiCall(supabase, { provider: "gemini", endpoint: "extract", status: 500, latencyMs: 0, error: (err as Error).message });
   }
 
   // 3. Build context and reply
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
     });
 
     const reply = await generate({ system, messages });
-    void logApiCall(supabase, { provider: reply.model, endpoint: "chat", status: 200, latencyMs: reply.latencyMs, error: null });
+    await logGeneration(supabase, "chat", reply);
 
     const { data: botMsg } = await supabase
       .from("messages")
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(body);
   } catch (err) {
     const message = (err as Error).message;
-    void logApiCall(supabase, { provider: "gemini", endpoint: "chat", status: 500, latencyMs: 0, error: message });
+    await logApiCall(supabase, { provider: "gemini", endpoint: "chat", status: 500, latencyMs: 0, error: message });
     const body: ChatApiResponse = {
       reply: saved.length
         ? `${saved.map((s) => s.label).join(", ")} সেভ করেছি, কিন্তু উত্তর দিতে সমস্যা হলো। একটু পরে আবার বলো।`

@@ -15,6 +15,7 @@ Rules:
 - Understand Bengali digits (০-৯) and convert to normal numbers.
 - Resolve relative times (আজ, গতকাল, এইমাত্র, রাতে, সকালে, yesterday night) using the provided CURRENT_DATETIME and TIMEZONE. Output occurred_at as ISO-8601 with offset.
 - One message can contain several facts: return several items.
+- A meal with a price is ONE food item (put the price in cost). Do NOT also add a finance item for it. Use finance only for non-food money (rent, shopping, transport, bills, salary, sending money home).
 - If the message is only chit-chat/question with nothing to log, return {"items": []}.
 - confidence: 0..1 (how sure you are about category AND values).
 

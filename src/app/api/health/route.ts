@@ -13,7 +13,7 @@ export async function GET() {
     ? await pingGemini()
     : { ok: false, error: "GEMINI_API_KEY সেট করা নেই" };
 
-  void logApiCall(auth.supabase, {
+  await logApiCall(auth.supabase, {
     provider: "model" in ai && ai.model ? ai.model : "gemini",
     endpoint: "health",
     status: ai.ok ? 200 : 500,

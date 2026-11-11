@@ -53,7 +53,7 @@ export async function extractItems(message: string, timeZone: string) {
   } catch {
     items = [];
   }
-  return { items, model: result.model, latencyMs: result.latencyMs };
+  return { items, model: result.model, latencyMs: result.latencyMs, failures: result.failures };
 }
 
 const CATEGORY_BN: Record<string, string> = {

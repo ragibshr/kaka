@@ -49,9 +49,11 @@ export async function generate(args: {
 }): Promise<GenerateResult> {
   const key = apiKey();
   const errors: string[] = [];
+  const failures: GenerateResult["failures"] = [];
 
   for (const model of modelChain()) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let useThinkingConfig = true;
+    for (let attempt = 0; attempt < 3; attempt++) {
       const start = Date.now();
       try {
         const res = await http<GeminiResponse>({
@@ -68,9 +70,11 @@ export async function generate(args: {
               temperature: args.temperature ?? (args.json ? 0.1 : 0.7),
               maxOutputTokens: args.maxOutputTokens ?? 2048,
               ...(args.json ? { responseMimeType: "application/json" } : {}),
+              // Kaka needs quick answers, not deep reasoning — keep "thinking" low
+              ...(useThinkingConfig ? { thinkingConfig: { thinkingLevel: "low" } } : {}),
             },
           },
-          timeoutMs: 45000,
+          timeoutMs: 25000,
         });
         const text =
           res.data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
@@ -81,14 +85,21 @@ export async function generate(args: {
             "empty";
           throw new KakaError({ status: 0, message: `Gemini খালি উত্তর দিয়েছে (${reason})` });
         }
-        return { text, model, latencyMs: Date.now() - start };
+        return { text, model, latencyMs: Date.now() - start, failures };
       } catch (err) {
         const e = err instanceof KakaError ? err : new KakaError({ status: 0, message: String(err) });
-        errors.push(`${model}: ${e.message}${e.bodySnippet ? ` ${e.bodySnippet}` : ""}`);
+        const detail = `${e.message}${e.bodySnippet ? ` ${e.bodySnippet}` : ""}`;
+        errors.push(`${model}: ${detail}`);
+        failures.push({ model, status: e.status, latencyMs: Date.now() - start, error: detail });
+        // Model doesn't accept thinkingConfig → retry same model without it
+        if (e.status === 400 && useThinkingConfig && /thinking/i.test(detail)) {
+          useThinkingConfig = false;
+          continue;
+        }
         if (!shouldTryNext(e)) {
           throw new KakaError({ status: e.status, message: errors.join(" | ") });
         }
-        if (e.status === 429 && attempt === 0) {
+        if (e.status === 429 && attempt < 2 && failures.filter((f) => f.model === model && f.status === 429).length === 1) {
           await sleep(1500);
           continue;
         }
@@ -113,7 +124,7 @@ export async function pingGemini(): Promise<{ ok: boolean; model?: string; laten
     const r = await generate({
       system: "Reply with the single word: ok",
       messages: [{ role: "user", content: "ping" }],
-      maxOutputTokens: 20,
+      maxOutputTokens: 200,
       temperature: 0,
     });
     return { ok: true, model: r.model, latencyMs: r.latencyMs };

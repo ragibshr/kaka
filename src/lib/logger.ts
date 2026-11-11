@@ -17,3 +17,15 @@ export async function logApiCall(
     // logging must never break the app
   }
 }
+
+/** Log the successful call plus any failed attempts before it. */
+export async function logGeneration(
+  supabase: SupabaseClient,
+  endpoint: string,
+  r: { model: string; latencyMs: number; failures?: { model: string; status: number; latencyMs: number; error: string }[] }
+) {
+  for (const f of r.failures ?? []) {
+    await logApiCall(supabase, { provider: f.model, endpoint, status: f.status || null, latencyMs: f.latencyMs, error: f.error });
+  }
+  await logApiCall(supabase, { provider: r.model, endpoint, status: 200, latencyMs: r.latencyMs, error: null });
+}

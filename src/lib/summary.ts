@@ -34,16 +34,23 @@ export async function buildTodaySummary(supabase: SupabaseClient, timeZone: stri
   const finRows = fin.data ?? [];
   const expenses = finRows.filter((r) => r.type === "expense");
   const income = finRows.filter((r) => r.type === "income");
-  lines.push(`Expenses today: ${expenses.length ? sumBy(expenses) : "none"}`);
+  const foodSpend = (food.data ?? [])
+    .filter((f) => f.cost != null)
+    .map((f) => ({ amount: Number(f.cost), currency: f.currency }));
+  const allSpend = [...expenses.map((e) => ({ amount: Number(e.amount), currency: e.currency })), ...foodSpend];
+  lines.push(`Total spent today (expenses + food): ${allSpend.length ? sumBy(allSpend) : "nothing"}`);
   if (expenses.length) {
     lines.push(
-      "Expense items: " +
+      "Non-food expense items: " +
         expenses.map((e) => `${e.amount} ${e.currency}${e.note ? ` (${e.note})` : ""}`).join("; ")
     );
   }
   if (income.length) lines.push(`Income today: ${sumBy(income)}`);
   if (food.data?.length) {
-    lines.push("Meals: " + food.data.map((f) => `${f.meal_type}: ${f.description}`).join("; "));
+    lines.push(
+      "Meals: " +
+        food.data.map((f) => `${f.meal_type}: ${f.description}${f.cost != null ? ` (${f.cost} ${f.currency})` : ""}`).join("; ")
+    );
   }
   if (work.data?.length) {
     lines.push(

@@ -7,6 +7,8 @@ export interface GenerateResult {
   text: string;
   model: string;
   latencyMs: number;
+  /** Attempts that failed before this one succeeded (for the Diagnostics log) */
+  failures: { model: string; status: number; latencyMs: number; error: string }[];
 }
 
 /** What the chat API returns for each fact it saved. */

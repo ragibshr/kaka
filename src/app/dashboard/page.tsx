@@ -274,7 +274,11 @@ export default function DashboardPage() {
                 {getDateLabel(selectedDate)} দিনের পর্যালোচনা
               </h2>
               <p className="text-xs text-muted">
-                কাকা তোমার সব এন্ট্রি স্বয়ংক্রিয়ভাবে গুছিয়ে রেখেছে।
+                {day === null
+                  ? "লোড হচ্ছে..."
+                  : d.entryCount
+                    ? `এই দিনে ${bn(d.entryCount)}টি এন্ট্রি আছে।`
+                    : "এই দিনে কিছু লেখা নেই — চ্যাটে কাকাকে বলো।"}
               </p>
             </div>
           </div>
@@ -414,13 +418,6 @@ export default function DashboardPage() {
                 <span>শীর্ষ খাত</span>
                 <span className="font-medium text-foreground">
                   {d.finance.topCategory}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-muted">
-                <span>বাজেট স্থিতি</span>
-                <span className="text-success font-medium flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                  নিয়ন্ত্রণে আছে
                 </span>
               </div>
             </div>

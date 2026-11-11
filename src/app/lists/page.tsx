@@ -354,7 +354,7 @@ export default function ListsPage() {
             <p className="text-xs text-muted">
               {searchQuery
                 ? `"${searchQuery}" এর জন্য কোনো ফলাফল নেই। অন্য কিছু লিখে খোঁজো।`
-                : "এই ক্যাটাগরিতে এখনো কোনো এন্ট্রি যোগ করা হয়নি।"}
+                : "এখনো কিছু নেই। চ্যাটে কাকাকে দিনের কথা বলো — এখানে নিজে থেকেই জমা হবে।"}
             </p>
             {searchQuery && (
               <button

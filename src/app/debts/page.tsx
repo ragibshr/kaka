@@ -261,7 +261,7 @@ export default function DebtsPage() {
             className="flex items-center gap-1.5 px-3 py-2 bg-accent text-white text-xs md:text-sm font-medium rounded-xl hover:bg-accent-hover transition-theme shadow-sm self-start sm:self-auto"
           >
             <Plus className="w-4 h-4" />
-            <span>নতুন হিসাব যোগ করুন</span>
+            <span>নতুন হিসাব যোগ করো</span>
           </button>
         </div>
       </header>

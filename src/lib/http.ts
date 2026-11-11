@@ -34,7 +34,13 @@ export async function http<T = unknown>(options: HttpOptions): Promise<HttpResul
       signal: controller.signal,
     });
     const latencyMs = Date.now() - start;
-    const data = await res.json() as T;
+    const raw = await res.text();
+    let data: T;
+    try {
+      data = (raw ? JSON.parse(raw) : {}) as T;
+    } catch {
+      data = { raw: raw.slice(0, 500) } as T;
+    }
 
     if (!res.ok) {
       throw new KakaError({

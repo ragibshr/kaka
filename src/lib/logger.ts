@@ -1,24 +1,19 @@
-export interface LogEntry {
-  timestamp: string;
-  provider: string;
-  endpoint: string;
-  status: number | null;
-  latencyMs: number;
-  error: string | null;
-}
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-const MAX_ENTRIES = 50;
-const logBuffer: LogEntry[] = [];
-
-export function logApiCall(entry: Omit<LogEntry, 'timestamp'>) {
-  logBuffer.unshift({ ...entry, timestamp: new Date().toISOString() });
-  if (logBuffer.length > MAX_ENTRIES) logBuffer.pop();
-}
-
-export function getLogEntries(): LogEntry[] {
-  return [...logBuffer];
-}
-
-export function clearLogEntries() {
-  logBuffer.length = 0;
+/** Store one AI call in the api_log table (shown on the Diagnostics page). Never throws. */
+export async function logApiCall(
+  supabase: SupabaseClient,
+  entry: { provider: string; endpoint: string; status: number | null; latencyMs: number; error: string | null }
+) {
+  try {
+    await supabase.from("api_log").insert({
+      provider: entry.provider,
+      endpoint: entry.endpoint,
+      status: entry.status,
+      latency_ms: entry.latencyMs,
+      error: entry.error?.slice(0, 1000) ?? null,
+    });
+  } catch {
+    // logging must never break the app
+  }
 }

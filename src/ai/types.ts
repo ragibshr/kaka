@@ -1,30 +1,26 @@
-// AI Provider interface — all providers implement this
-export interface AIProvider {
-  name: "groq" | "gemini" | "openrouter";
-  chat(args: {
-    system: string;
-    messages: { role: "user" | "assistant"; content: string }[];
-    temperature?: number;
-    signal?: AbortSignal;
-  }): Promise<string>;
-  json(args: {
-    system: string;
-    user: string;
-    temperature?: number;
-    signal?: AbortSignal;
-  }): Promise<string>;
-  listModels(): Promise<string[]>;
-  ping(): Promise<{ ok: boolean; latencyMs: number; error?: string }>;
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
-export interface AIResponse {
+export interface GenerateResult {
   text: string;
-  provider: "groq" | "gemini" | "openrouter";
+  model: string;
+  latencyMs: number;
 }
 
-export interface ProviderConfig {
-  name: "groq" | "gemini" | "openrouter";
-  apiKey: string;
-  model: string;
-  enabled: boolean;
+/** What the chat API returns for each fact it saved. */
+export interface SavedItem {
+  entryId: string;
+  category: string;
+  label: string;
+}
+
+export interface ChatApiResponse {
+  reply: string;
+  model?: string;
+  saved: SavedItem[];
+  userMessageId?: string;
+  assistantMessageId?: string;
+  error?: string;
 }

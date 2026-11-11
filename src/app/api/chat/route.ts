@@ -1,80 +1,122 @@
-import { NextRequest, NextResponse } from "next/server";
-import { chainChat } from "@/ai/chain";
-import { CHAT_SYSTEM_PROMPT, buildChatContext } from "@/ai/prompts";
-import type { ProviderConfig } from "@/ai/types";
+import { NextResponse, type NextRequest } from "next/server";
+import { z } from "zod";
+import { requireUser } from "@/lib/auth";
+import { generate } from "@/ai/gemini";
+import { extractItems, saveItems } from "@/ai/extract";
+import { buildChatSystemPrompt } from "@/ai/prompts";
+import { buildTodaySummary } from "@/lib/summary";
+import { logApiCall } from "@/lib/logger";
+import { isValidTimeZone, localIso } from "@/lib/time";
+import type { ChatApiResponse, ChatMessage } from "@/ai/types";
 
-function getProviders(): ProviderConfig[] {
-  const providers: ProviderConfig[] = [];
-
-  if (process.env.GROQ_API_KEY) {
-    providers.push({
-      name: "groq",
-      apiKey: process.env.GROQ_API_KEY,
-      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-      enabled: true,
-    });
-  }
-
-  if (process.env.GEMINI_API_KEY) {
-    providers.push({
-      name: "gemini",
-      apiKey: process.env.GEMINI_API_KEY,
-      model: process.env.GEMINI_MODEL || "gemini-2.0-flash",
-      enabled: true,
-    });
-  }
-
-  if (process.env.OPENROUTER_API_KEY) {
-    providers.push({
-      name: "openrouter",
-      apiKey: process.env.OPENROUTER_API_KEY,
-      model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
-      enabled: true,
-    });
-  }
-
-  return providers;
-}
+const Body = z.object({
+  text: z.string().trim().min(1).max(4000),
+  timeZone: z.string().optional(),
+  inputMode: z.enum(["text", "voice"]).optional(),
+});
 
 export async function POST(request: NextRequest) {
+  const auth = await requireUser();
+  if (!auth.ok) return auth.response;
+  const { supabase, user } = auth;
+
+  const parsed = Body.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "text দরকার" }, { status: 400 });
+  }
+  const { text, inputMode = "text" } = parsed.data;
+  const timeZone = isValidTimeZone(parsed.data.timeZone) ? parsed.data.timeZone : "Asia/Dubai";
+  // One running conversation per user for now
+  const conversationId = user.id;
+
+  // 1. Store the user's message
+  const { data: userMsg } = await supabase
+    .from("messages")
+    .insert({ conversation_id: conversationId, role: "user", content: text, input_mode: inputMode })
+    .select("id")
+    .single();
+
+  // 2. Extract facts and save them
+  let saved: ChatApiResponse["saved"] = [];
+  let clarify: string[] = [];
   try {
-    const body = await request.json();
-    const { messages, memories = [], todaySummary = "" } = body;
-
-    if (!messages || !Array.isArray(messages)) {
-      return NextResponse.json(
-        { error: "messages array is required" },
-        { status: 400 }
-      );
-    }
-
-    const providers = getProviders();
-    if (providers.length === 0) {
-      return NextResponse.json(
-        {
-          error: "No AI providers configured. Set GROQ_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY in environment variables.",
-        },
-        { status: 503 }
-      );
-    }
-
-    const context = buildChatContext(memories, todaySummary, messages);
-    const systemPrompt = context
-      ? `${CHAT_SYSTEM_PROMPT}\n\n${context}`
-      : CHAT_SYSTEM_PROMPT;
-
-    const result = await chainChat(providers, {
-      system: systemPrompt,
-      messages,
+    const ex = await extractItems(text, timeZone);
+    void logApiCall(supabase, { provider: ex.model, endpoint: "extract", status: 200, latencyMs: ex.latencyMs, error: null });
+    const res = await saveItems(supabase, ex.items, {
+      rawText: text,
+      sourceMessageId: userMsg?.id ?? null,
+      timeZone,
     });
-
-    return NextResponse.json({
-      text: result.text,
-      provider: result.provider,
-    });
+    saved = res.saved;
+    clarify = res.clarify;
   } catch (err) {
-    console.error("[API /chat]", err);
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    void logApiCall(supabase, { provider: "gemini", endpoint: "extract", status: 500, latencyMs: 0, error: (err as Error).message });
+  }
+
+  // 3. Build context and reply
+  try {
+    const [history, memories, todaySummary] = await Promise.all([
+      supabase
+        .from("messages")
+        .select("role, content")
+        .eq("conversation_id", conversationId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(21),
+      supabase
+        .from("memories")
+        .select("content")
+        .eq("status", "approved")
+        .is("deleted_at", null)
+        .order("pinned", { ascending: false })
+        .order("importance", { ascending: false })
+        .limit(30),
+      buildTodaySummary(supabase, timeZone),
+    ]);
+
+    const messages: ChatMessage[] = (history.data ?? [])
+      .reverse()
+      .map((m) => ({ role: m.role as ChatMessage["role"], content: m.content }));
+    // Gemini needs the conversation to start with a user turn
+    while (messages.length && messages[0].role !== "user") messages.shift();
+    if (!messages.length) messages.push({ role: "user", content: text });
+
+    const system = buildChatSystemPrompt({
+      memories: (memories.data ?? []).map((m) => m.content),
+      todaySummary,
+      saved: saved.map((s) => s.label),
+      clarify,
+      now: localIso(timeZone),
+    });
+
+    const reply = await generate({ system, messages });
+    void logApiCall(supabase, { provider: reply.model, endpoint: "chat", status: 200, latencyMs: reply.latencyMs, error: null });
+
+    const { data: botMsg } = await supabase
+      .from("messages")
+      .insert({ conversation_id: conversationId, role: "assistant", content: reply.text, provider: reply.model })
+      .select("id")
+      .single();
+
+    const body: ChatApiResponse = {
+      reply: reply.text,
+      model: reply.model,
+      saved,
+      userMessageId: userMsg?.id,
+      assistantMessageId: botMsg?.id,
+    };
+    return NextResponse.json(body);
+  } catch (err) {
+    const message = (err as Error).message;
+    void logApiCall(supabase, { provider: "gemini", endpoint: "chat", status: 500, latencyMs: 0, error: message });
+    const body: ChatApiResponse = {
+      reply: saved.length
+        ? `${saved.map((s) => s.label).join(", ")} সেভ করেছি, কিন্তু উত্তর দিতে সমস্যা হলো। একটু পরে আবার বলো।`
+        : "দুঃখিত, এই মুহূর্তে AI-এর সাথে সংযোগ হচ্ছে না। একটু পরে আবার চেষ্টা করো।",
+      saved,
+      userMessageId: userMsg?.id,
+      error: message,
+    };
+    return NextResponse.json(body, { status: 502 });
   }
 }

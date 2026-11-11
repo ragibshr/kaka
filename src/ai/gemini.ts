@@ -1,107 +1,123 @@
-import type { AIProvider } from "./types";
+import "server-only";
 import { http } from "@/lib/http";
+import { KakaError } from "@/lib/errors";
+import type { ChatMessage, GenerateResult } from "./types";
 
-export function createGeminiProvider(
-  apiKey: string,
-  model: string
-): AIProvider {
-  const baseUrl = "https://generativelanguage.googleapis.com/v1beta";
-  const headers = {
-    "x-goog-api-key": apiKey,
-  };
+const BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
-  function buildContents(
-    messages: { role: "user" | "assistant" | "system"; content: string }[]
-  ) {
-    return messages
-      .filter((m) => m.role !== "system")
-      .map((m) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
+/** Models to try in order. Aliases always point to Google's current Flash models. */
+function modelChain(): string[] {
+  const primary = process.env.GEMINI_MODEL || "gemini-flash-latest";
+  const fallback = process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-lite-latest";
+  return primary === fallback ? [primary] : [primary, fallback];
+}
+
+function apiKey(): string {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw new KakaError({
+      status: 0,
+      message: "GEMINI_API_KEY সেট করা নেই। .env.local ফাইলে key বসাও।",
+    });
   }
+  return key;
+}
 
-  return {
-    name: "gemini",
+export function isGeminiConfigured(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY);
+}
 
-    async chat({ system, messages, temperature = 0.7, signal }) {
-      const result = await http<{
-        candidates: { content: { parts: { text: string }[] } }[];
-      }>({
-        url: `${baseUrl}/models/${model}:generateContent`,
-        method: "POST",
-        headers,
-        body: {
-          systemInstruction: { parts: [{ text: system }] },
-          contents: buildContents(
-            messages.map((m) => ({ ...m }))
-          ),
-          generationConfig: { temperature },
-        },
-        timeoutMs: 30000,
-        signal,
-      });
-      return result.data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    },
+type GeminiResponse = {
+  candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+  promptFeedback?: { blockReason?: string };
+};
 
-    async json({ system, user, temperature = 0.2, signal }) {
-      const result = await http<{
-        candidates: { content: { parts: { text: string }[] } }[];
-      }>({
-        url: `${baseUrl}/models/${model}:generateContent`,
-        method: "POST",
-        headers,
-        body: {
-          systemInstruction: { parts: [{ text: system }] },
-          contents: [{ role: "user", parts: [{ text: user }] }],
-          generationConfig: {
-            temperature,
-            responseMimeType: "application/json",
-          },
-        },
-        timeoutMs: 30000,
-        signal,
-      });
-      return result.data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    },
+/** Retry on rate-limit / server errors, then move to the next model. */
+function shouldTryNext(err: unknown): boolean {
+  if (!(err instanceof KakaError)) return true;
+  return err.status === 0 || err.status === 404 || err.status === 429 || err.status >= 500;
+}
 
-    async listModels() {
-      const result = await http<{
-        models: { name: string; supportedGenerationMethods: string[] }[];
-      }>({
-        url: `${baseUrl}/models`,
-        method: "GET",
-        headers,
-      });
-      return result.data.models
-        .filter((m) =>
-          m.supportedGenerationMethods?.includes("generateContent")
-        )
-        .map((m) => m.name.replace("models/", ""))
-        .sort();
-    },
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    async ping() {
+export async function generate(args: {
+  system: string;
+  messages: ChatMessage[];
+  json?: boolean;
+  temperature?: number;
+  maxOutputTokens?: number;
+}): Promise<GenerateResult> {
+  const key = apiKey();
+  const errors: string[] = [];
+
+  for (const model of modelChain()) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       const start = Date.now();
       try {
-        await http({
-          url: `${baseUrl}/models/${model}:generateContent`,
+        const res = await http<GeminiResponse>({
+          url: `${BASE_URL}/models/${model}:generateContent`,
           method: "POST",
-          headers,
+          headers: { "x-goog-api-key": key },
           body: {
-            contents: [{ role: "user", parts: [{ text: "ping" }] }],
-            generationConfig: { maxOutputTokens: 5 },
+            systemInstruction: { parts: [{ text: args.system }] },
+            contents: args.messages.map((m) => ({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: m.content }],
+            })),
+            generationConfig: {
+              temperature: args.temperature ?? (args.json ? 0.1 : 0.7),
+              maxOutputTokens: args.maxOutputTokens ?? 2048,
+              ...(args.json ? { responseMimeType: "application/json" } : {}),
+            },
           },
-          timeoutMs: 10000,
+          timeoutMs: 45000,
         });
-        return { ok: true, latencyMs: Date.now() - start };
+        const text =
+          res.data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+        if (!text) {
+          const reason =
+            res.data.promptFeedback?.blockReason ||
+            res.data.candidates?.[0]?.finishReason ||
+            "empty";
+          throw new KakaError({ status: 0, message: `Gemini খালি উত্তর দিয়েছে (${reason})` });
+        }
+        return { text, model, latencyMs: Date.now() - start };
       } catch (err) {
-        return {
-          ok: false,
-          latencyMs: Date.now() - start,
-          error: (err as Error).message,
-        };
+        const e = err instanceof KakaError ? err : new KakaError({ status: 0, message: String(err) });
+        errors.push(`${model}: ${e.message}${e.bodySnippet ? ` ${e.bodySnippet}` : ""}`);
+        if (!shouldTryNext(e)) {
+          throw new KakaError({ status: e.status, message: errors.join(" | ") });
+        }
+        if (e.status === 429 && attempt === 0) {
+          await sleep(1500);
+          continue;
+        }
+        break; // next model
       }
-    },
-  };
+    }
+  }
+  throw new KakaError({ status: 503, message: `সব Gemini মডেল ব্যর্থ: ${errors.join(" | ")}` });
+}
+
+/** Parse JSON from a model reply, tolerating ```json fences. */
+export function parseJson<T = unknown>(text: string): T {
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+  }
+  return JSON.parse(cleaned) as T;
+}
+
+export async function pingGemini(): Promise<{ ok: boolean; model?: string; latencyMs?: number; error?: string }> {
+  try {
+    const r = await generate({
+      system: "Reply with the single word: ok",
+      messages: [{ role: "user", content: "ping" }],
+      maxOutputTokens: 20,
+      temperature: 0,
+    });
+    return { ok: true, model: r.model, latencyMs: r.latencyMs };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }

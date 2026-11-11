@@ -17,12 +17,17 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  getLogEntries,
-  clearLogEntries,
-  logApiCall,
-  type LogEntry,
-} from "@/lib/logger";
+import { createClient } from "@/lib/supabase/client";
+
+interface LogEntry {
+  id: string;
+  timestamp: string;
+  provider: string;
+  endpoint: string;
+  status: number | null;
+  latencyMs: number;
+  error: string | null;
+}
 
 export default function DiagnosticsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -30,19 +35,35 @@ export default function DiagnosticsPage() {
   const [copiedAll, setCopiedAll] = useState(false);
   const [copiedModal, setCopiedModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
 
-  // Load log entries
-  const refreshLogs = () => {
+  // Load the latest 100 AI calls from the api_log table
+  const refreshLogs = async () => {
     setIsRefreshing(true);
-    setLogs(getLogEntries());
-    setTimeout(() => setIsRefreshing(false), 300);
+    const { data } = await createClient()
+      .from("api_log")
+      .select("id, created_at, provider, endpoint, status, latency_ms, error")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    setLogs(
+      (data ?? []).map((r) => ({
+        id: r.id,
+        timestamp: r.created_at,
+        provider: r.provider,
+        endpoint: r.endpoint,
+        status: r.status,
+        latencyMs: r.latency_ms ?? 0,
+        error: r.error,
+      }))
+    );
+    setIsRefreshing(false);
   };
 
   useEffect(() => {
-    refreshLogs();
+    void refreshLogs();
   }, []);
 
-  // Copy all logs to clipboard as JSON
   const handleCopyAll = async () => {
     if (logs.length === 0) return;
     try {
@@ -50,62 +71,41 @@ export default function DiagnosticsPage() {
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 2000);
     } catch {
-      alert("লগ কপি করতে ব্যর্থ হয়েছে");
+      alert("লগ কপি করা গেল না");
     }
   };
 
-  // Clear all logs
-  const handleClear = () => {
+  const handleClear = async () => {
     if (logs.length === 0) return;
-    if (confirm("আপনি কি সব ডায়াগনস্টিক লগ মুছে ফেলতে চান?")) {
-      clearLogEntries();
+    if (confirm("সব ডায়াগনস্টিক লগ মুছে ফেলবে?")) {
+      await createClient()
+        .from("api_log")
+        .update({ deleted_at: new Date().toISOString() })
+        .is("deleted_at", null);
       setLogs([]);
       setSelectedLog(null);
     }
   };
 
-  // Copy single log in modal
   const handleCopySingle = async (entry: LogEntry) => {
     try {
       await navigator.clipboard.writeText(JSON.stringify(entry, null, 2));
       setCopiedModal(true);
       setTimeout(() => setCopiedModal(false), 2000);
     } catch {
-      alert("লগ কপি করতে ব্যর্থ হয়েছে");
+      alert("লগ কপি করা গেল না");
     }
   };
 
-  // Insert mock logs for easy preview if empty
-  const handleAddSampleLogs = () => {
-    logApiCall({
-      provider: "groq",
-      endpoint: "/api/chat/completions",
-      status: 200,
-      latencyMs: 145,
-      error: null,
-    });
-    logApiCall({
-      provider: "gemini",
-      endpoint: "/v1beta/models/gemini-1.5-flash:generateContent",
-      status: 429,
-      latencyMs: 820,
-      error: "Rate limit exceeded (RESOURCE_EXHAUSTED): quota reached for free tier",
-    });
-    logApiCall({
-      provider: "openrouter",
-      endpoint: "/api/v1/chat/completions",
-      status: 200,
-      latencyMs: 412,
-      error: null,
-    });
-    logApiCall({
-      provider: "supabase",
-      endpoint: "/rest/v1/user_profiles?select=*",
-      status: 500,
-      latencyMs: 95,
-      error: "PostgREST connection error: connection refused by database host",
-    });
-    refreshLogs();
+  // Run a real health check (database + Gemini) — it writes a log row itself
+  const handleRunTest = async () => {
+    setIsTesting(true);
+    try {
+      await fetch("/api/health");
+    } finally {
+      setIsTesting(false);
+      void refreshLogs();
+    }
   };
 
   // Formatter for timestamp
@@ -236,11 +236,12 @@ export default function DiagnosticsPage() {
               এখনো কোনো API রিকোয়েস্ট করা হয়নি। চ্যাট বার্তা পাঠালে বা সেটিংস টেস্ট করলে রিয়েল-টাইম লগ এখানে জমা হবে।
             </p>
             <button
-              onClick={handleAddSampleLogs}
+              onClick={handleRunTest}
+              disabled={isTesting}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-white hover:bg-accent-hover text-xs font-medium transition-theme shadow-sm"
             >
               <Zap className="w-4 h-4" />
-              <span>নমুনা টেস্ট লগ তৈরি করো (Sample Logs)</span>
+              <span>{isTesting ? "টেস্ট চলছে..." : "এখনই একটা টেস্ট চালাও"}</span>
             </button>
           </div>
         ) : (
@@ -267,14 +268,14 @@ export default function DiagnosticsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {logs.map((log, index) => {
+                  {logs.map((log) => {
                     const isSuccess = log.status && log.status >= 200 && log.status < 300;
                     const isRateLimit = log.status === 429;
                     const isError = !log.status || log.status >= 400 || log.error;
 
                     return (
                       <tr
-                        key={index}
+                        key={log.id}
                         onClick={() => setSelectedLog(log)}
                         className="hover:bg-accent-light/30 cursor-pointer transition-colors"
                       >
@@ -288,11 +289,9 @@ export default function DiagnosticsPage() {
                           <span
                             className={cn(
                               "px-2.5 py-1 rounded-md text-[11px] font-medium uppercase font-mono",
-                              log.provider === "groq" && "bg-orange-50 text-orange-700 border border-orange-200",
-                              log.provider === "gemini" && "bg-blue-50 text-blue-700 border border-blue-200",
-                              log.provider === "openrouter" && "bg-purple-50 text-purple-700 border border-purple-200",
-                              log.provider === "supabase" && "bg-emerald-50 text-emerald-700 border border-emerald-200",
-                              !["groq", "gemini", "openrouter", "supabase"].includes(log.provider) &&
+                                                            log.provider.startsWith("gemini") && "bg-blue-50 text-blue-700 border border-blue-200",
+                                                            log.provider === "supabase" && "bg-emerald-50 text-emerald-700 border border-emerald-200",
+                              !log.provider.startsWith("gemini") && log.provider !== "supabase" &&
                                 "bg-surface text-foreground border border-border"
                             )}
                           >

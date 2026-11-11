@@ -30,6 +30,7 @@ const bottomItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  if (pathname === "/auth") return null;
 
   return (
     <aside className="hidden md:flex flex-col w-64 h-full bg-surface border-r border-border">

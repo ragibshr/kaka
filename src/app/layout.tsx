@@ -7,7 +7,6 @@ import { Providers } from "@/components/providers";
 export const metadata: Metadata = {
   title: "Kaka — তোমার AI সঙ্গী",
   description: "Personal life-organizer AI companion. তোমার জীবনের সব তথ্য গুছিয়ে রাখো।",
-  manifest: "/manifest.json",
   icons: { icon: "/favicon.ico" },
 };
 

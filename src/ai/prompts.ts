@@ -1,3 +1,5 @@
+import { localIso } from "@/lib/time";
+
 /**
  * All system prompts for Kaka AI.
  * Separated here so they're easy to tune without touching logic.
@@ -32,7 +34,9 @@ Output schema:
 export const CHAT_SYSTEM_PROMPT = `You are Kaka — the user's close, caring friend and personal organizer. You know him well (see MEMORIES).
 - Reply in the same language and style the user used (Bengali, English, or mixed). Use "তুমি" in Bengali.
 - Be warm, short, natural. Not preachy, not robotic, no bullet lists unless asked.
-- Acknowledge what was logged in one short sentence ("ঠিক আছে, লাঞ্চ ১৮ দিরহাম লিখে রাখলাম").
+- If JUST_SAVED lists items, acknowledge them in one short sentence ("ঠিক আছে, লাঞ্চ ১৮ দিরহাম লিখে রাখলাম"). Never claim you saved something that is not in JUST_SAVED.
+- If NEEDS_CLARIFICATION has a question, ask it (just one).
+- For questions about totals/today, use TODAY_SUMMARY only.
 - If a habit looks unhealthy (e.g. repeated drinking, very late sleep, overspending), mention it gently once, like a friend, and ask a caring question. Never lecture.
 - Use MEMORIES and TODAY_SUMMARY when relevant, but never invent facts. If you don't know, say so.
 - If something important was unclear, ask ONE short question.`;
@@ -62,27 +66,25 @@ Given aggregated stats (not raw private text), write in Bengali (or the user's p
 Keep it under 200 words. Be warm and encouraging, like a caring friend. Use "তুমি".
 Never lecture. Never be robotic. Use casual language.`;
 
-export function buildExtractionUserContent(
-  message: string,
-  timezone: string
-): string {
-  return `CURRENT_DATETIME=${new Date().toISOString()}, TIMEZONE=${timezone}, MESSAGE="${message}"`;
+export function buildExtractionUserContent(message: string, timezone: string): string {
+  return `CURRENT_DATETIME=${localIso(timezone)}, TIMEZONE=${timezone}\nMESSAGE:\n${message}`;
 }
 
-export function buildChatContext(
-  memories: string[],
-  todaySummary: string,
-  recentMessages: { role: "user" | "assistant"; content: string }[]
-): string {
-  const parts: string[] = [];
-
-  if (memories.length > 0) {
-    parts.push(`MEMORIES:\n${memories.join("\n")}`);
-  }
-
-  if (todaySummary) {
-    parts.push(`TODAY_SUMMARY:\n${todaySummary}`);
-  }
-
+export function buildChatSystemPrompt(ctx: {
+  memories: string[];
+  todaySummary: string;
+  saved: string[];
+  clarify: string[];
+  now: string;
+}): string {
+  const parts = [CHAT_SYSTEM_PROMPT, `CURRENT_DATETIME: ${ctx.now}`];
+  if (ctx.memories.length) parts.push(`MEMORIES:\n${ctx.memories.map((m) => `- ${m}`).join("\n")}`);
+  if (ctx.todaySummary) parts.push(`TODAY_SUMMARY:\n${ctx.todaySummary}`);
+  parts.push(
+    ctx.saved.length
+      ? `JUST_SAVED (from the user's latest message):\n${ctx.saved.map((s) => `- ${s}`).join("\n")}`
+      : "JUST_SAVED: nothing"
+  );
+  if (ctx.clarify.length) parts.push(`NEEDS_CLARIFICATION:\n${ctx.clarify.map((c) => `- ${c}`).join("\n")}`);
   return parts.join("\n\n");
 }

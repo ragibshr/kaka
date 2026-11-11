@@ -269,7 +269,7 @@ export default function MemoryPage() {
             className="flex items-center gap-1.5 px-3 py-2 bg-accent text-white text-xs md:text-sm font-medium rounded-xl hover:bg-accent-hover transition-theme shadow-sm self-start sm:self-auto"
           >
             <Plus className="w-4 h-4" />
-            <span>নতুন স্মৃতি যুক্ত করুন</span>
+            <span>নতুন স্মৃতি যুক্ত করো</span>
           </button>
         </div>
 
@@ -449,7 +449,7 @@ export default function MemoryPage() {
                             className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent-hover transition-theme shadow-sm font-semibold"
                           >
                             <Check className="w-3.5 h-3.5" />
-                            অনুমোদন করুন
+                            অনুমোদন করো
                           </button>
                         </>
                       ) : (
@@ -463,7 +463,7 @@ export default function MemoryPage() {
                                 ? "bg-amber-50 border-amber-300 text-amber-700"
                                 : "bg-white border-border text-muted hover:text-foreground hover:bg-surface"
                             )}
-                            title={item.isPinned ? "পিন আনপিন করুন" : "পিন করুন"}
+                            title={item.isPinned ? "পিন আনপিন করো" : "পিন করো"}
                           >
                             <Pin className="w-4 h-4" />
                           </button>
@@ -471,7 +471,7 @@ export default function MemoryPage() {
                           {/* Edit placeholder */}
                           <button
                             onClick={() => {
-                              const updated = prompt("তথ্যটি সম্পাদনা করুন:", item.content);
+                              const updated = prompt("তথ্যটি সম্পাদনা করো:", item.content);
                               if (updated && updated.trim()) {
                                 setMemories((prev) =>
                                   prev.map((m) =>
@@ -481,7 +481,7 @@ export default function MemoryPage() {
                               }
                             }}
                             className="p-1.5 rounded-lg border border-border bg-white text-muted hover:text-foreground hover:bg-surface transition-theme"
-                            title="সম্পাদনা করুন"
+                            title="সম্পাদনা করো"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>

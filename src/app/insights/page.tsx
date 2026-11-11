@@ -256,7 +256,7 @@ export default function InsightsPage() {
               ) : (
                 <Sparkles className="w-4 h-4" />
               )}
-              <span>{isGenerating ? "বিশ্লেষণ হচ্ছে..." : "নতুন বিশ্লেষণ তৈরি করুন"}</span>
+              <span>{isGenerating ? "বিশ্লেষণ হচ্ছে..." : "নতুন বিশ্লেষণ তৈরি করো"}</span>
             </button>
           </div>
         </div>
@@ -528,7 +528,7 @@ export default function InsightsPage() {
                   }}
                   className="w-full text-xs font-semibold py-2 px-3 rounded-lg bg-surface border border-border text-foreground hover:bg-surface-2 transition-theme text-center"
                 >
-                  রুটিনে যুক্ত করুন
+                  রুটিনে যুক্ত করো
                 </button>
               </div>
             ))}

@@ -203,7 +203,7 @@ export default function DashboardPage() {
             </span>
             <input
               type="date"
-              aria-label="তারিখ নির্বাচন করুন"
+              aria-label="তারিখ নির্বাচন করো"
               value={format(selectedDate, "yyyy-MM-dd")}
               onChange={(e) => {
                 if (e.target.value) {

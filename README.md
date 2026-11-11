@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# কাকা (Kaka) — তোমার AI জীবন-সঙ্গী
 
-## Getting Started
+বাংলা/ইংরেজিতে দিনের কথা লেখো — কাকা খরচ, খাবার, কাজ, ধার, স্বাস্থ্য, যোগাযোগ আলাদা করে গুছিয়ে রাখে, আর বন্ধুর মতো উত্তর দেয়।
 
-First, run the development server:
+**স্ট্যাক:** Next.js 16 · Supabase (ডাটাবেজ + লগইন) · Gemini API · Tailwind 4
+
+## চালানোর নিয়ম
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.local.example .env.local   # তারপর GEMINI_API_KEY বসাও
+npm run dev                          # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+প্রথমবার `/auth` থেকে সাইন আপ করো (ইমেইলে নিশ্চিতকরণ লিংক আসবে)।
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ফোল্ডার
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| পথ | কী আছে |
+|---|---|
+| `src/app/page.tsx` | চ্যাট স্ক্রিন |
+| `src/app/api/chat` | মেসেজ → তথ্য বের করা → সেভ → উত্তর |
+| `src/app/api/health` | ডাটাবেজ + Gemini পরীক্ষা |
+| `src/ai/gemini.ts` | Gemini ক্লায়েন্ট (মডেল fallback + retry) |
+| `src/ai/extract.ts` | বের করা তথ্য যাচাই (zod) ও টেবিলে সেভ |
+| `src/ai/prompts.ts` | সব AI প্রম্পট |
+| `src/lib/summary.ts` | "আজকের সারাংশ" — চ্যাটকে আসল সংখ্যা দেয় |
+| `src/proxy.ts` | লগইন ছাড়া সব পেজ `/auth`-এ পাঠায় |
+| `supabase/migrations/` | ডাটাবেজ schema (Supabase প্রজেক্টে প্রয়োগ করা) |
 
-## Learn More
+## অগ্রগতি
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [x] ধাপ ০ — পরিষ্কার, শুধু Gemini, নিরাপত্তা আপডেট
+- [x] ধাপ ১ — লগইন (Supabase Auth), API সুরক্ষা
+- [x] ধাপ ২ — চ্যাট লুপ: সেভ চিপ + Undo, ইতিহাস, আজকের সারাংশ
+- [ ] ধাপ ৩ — Dashboard / Lists / Debts আসল ডেটায়
+- [ ] ধাপ ৪ — মেমরি
+- [ ] ধাপ ৫ — Insights
+- [ ] ধাপ ৬ — ভয়েস + PWA
+- [ ] ধাপ ৭ — Vercel deploy

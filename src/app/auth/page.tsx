@@ -1,19 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import {
   Lock,
   Mail,
   Eye,
   EyeOff,
   ArrowRight,
-  Settings,
   AlertTriangle,
   CheckCircle2,
-  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -26,20 +24,11 @@ export default function AuthPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [hasSupabaseConfig, setHasSupabaseConfig] = useState<boolean | null>(null);
 
-  // Check if Supabase credentials are configured in localStorage or environment
+  // Supabase keys come from .env.local (build-time)
   useEffect(() => {
-    try {
-      const localUrl = localStorage.getItem("kaka_supabase_url");
-      const localKey = localStorage.getItem("kaka_supabase_anon_key");
-      const hasConfig = Boolean(
-        (localUrl && localKey) ||
-          (process.env.NEXT_PUBLIC_SUPABASE_URL &&
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-      );
-      setHasSupabaseConfig(hasConfig);
-    } catch {
-      setHasSupabaseConfig(false);
-    }
+    setHasSupabaseConfig(
+      Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+    );
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -54,7 +43,7 @@ export default function AuthPage() {
     }
 
     if (!email.includes("@") || !email.includes(".")) {
-      setErrorMessage("দয়া করে একটি সঠিক ইমেইল ঠিকানা দিন।");
+      setErrorMessage("একটা সঠিক ইমেইল ঠিকানা দাও।");
       return;
     }
 
@@ -69,31 +58,35 @@ export default function AuthPage() {
     }
 
     setIsLoading(true);
-
-    // TODO: Supabase auth integration
-    // e.g.:
-    // if (mode === 'login') {
-    //   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    // } else {
-    //   const { data, error } = await supabase.auth.signUp({ email, password });
-    // }
-    console.log(`[Auth Submit] Mode: ${mode}, Email: ${email}`);
-    console.log(
-      "// TODO: Supabase auth integration — connect supabase.auth.signInWithPassword or signUp"
-    );
-
-    setTimeout(() => {
-      setIsLoading(false);
-      if (mode === "signup") {
-        setSuccessMessage(
-          "অ্যাকাউন্ট সফলভাবে প্রস্তুত করা হয়েছে! (ডেমো মোড — Supabase integration pending)"
-        );
-      } else {
-        setSuccessMessage(
-          "লগইন সফল হয়েছে! কাকা তে স্বাগতম। (ডেমো মোড — Supabase integration pending)"
-        );
+    const supabase = createClient();
+    try {
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw error;
+        window.location.href = "/";
+        return;
       }
-    }, 800);
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: { emailRedirectTo: `${window.location.origin}/auth` },
+      });
+      if (error) throw error;
+      if (data.session) {
+        window.location.href = "/";
+        return;
+      }
+      setSuccessMessage("অ্যাকাউন্ট তৈরি হয়েছে! ইমেইলে একটা নিশ্চিতকরণ লিংক গেছে — সেটায় ক্লিক করে তারপর লগইন করো।");
+      setMode("login");
+    } catch (err) {
+      const msg = (err as Error).message || "";
+      if (/invalid login credentials/i.test(msg)) setErrorMessage("ইমেইল বা পাসওয়ার্ড ভুল।");
+      else if (/email not confirmed/i.test(msg)) setErrorMessage("ইমেইল এখনো নিশ্চিত করা হয়নি — ইনবক্সে লিংকটা দেখো।");
+      else if (/already registered/i.test(msg)) setErrorMessage("এই ইমেইলে আগেই অ্যাকাউন্ট আছে — লগইন করো।");
+      else setErrorMessage(msg || "কিছু একটা সমস্যা হয়েছে।");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -111,15 +104,8 @@ export default function AuthPage() {
                   Supabase সেটআপ বাকি
                 </h3>
                 <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-                  লাইভ অথেনটিকেশন ও ক্লাউড সিঙ্কের জন্য Supabase URL ও কী প্রয়োজন। Settings পেজ থেকে সহজে সেটআপ করো।
+                  .env.local ফাইলে NEXT_PUBLIC_SUPABASE_URL আর NEXT_PUBLIC_SUPABASE_ANON_KEY বসাও, তারপর অ্যাপ রিস্টার্ট করো।
                 </p>
-                <Link
-                  href="/settings"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline mt-2.5"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>Settings এ যাও &rarr;</span>
-                </Link>
               </div>
             </div>
           </div>
@@ -275,7 +261,7 @@ export default function AuthPage() {
               ) : (
                 <>
                   <span>
-                    {mode === "login" ? "লগইন করুন" : "অ্যাকাউন্ট তৈরি করুন"}
+                    {mode === "login" ? "লগইন করো" : "অ্যাকাউন্ট তৈরি করো"}
                   </span>
                   <ArrowRight className="w-4 h-4" />
                 </>
@@ -319,13 +305,6 @@ export default function AuthPage() {
           </div>
         </div>
 
-        {/* Guest info badge */}
-        <div className="text-center">
-          <p className="text-xs text-muted flex items-center justify-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-accent" />
-            <span>লগইন ছাড়াও ব্রাউজারে কাকার লোকাল স্টোরেজ ব্যবহার করা যাবে</span>
-          </p>
-        </div>
       </div>
     </div>
   );

@@ -76,6 +76,7 @@ export function buildChatSystemPrompt(ctx: {
   todaySummary: string;
   saved: string[];
   clarify: string[];
+  extractFailed?: boolean;
   now: string;
 }): string {
   const parts = [CHAT_SYSTEM_PROMPT, `CURRENT_DATETIME: ${ctx.now}`];
@@ -86,6 +87,11 @@ export function buildChatSystemPrompt(ctx: {
       ? `JUST_SAVED (from the user's latest message):\n${ctx.saved.map((s) => `- ${s}`).join("\n")}`
       : "JUST_SAVED: nothing"
   );
+  if (ctx.extractFailed) {
+    parts.push(
+      "SAVE_FAILED: The note-taking system had a temporary error, so NOTHING from the user's latest message was saved. If the message contained something to log, tell him briefly that you couldn't save it this time and ask him to send it again in a minute. Do not pretend it was saved."
+    );
+  }
   if (ctx.clarify.length) parts.push(`NEEDS_CLARIFICATION:\n${ctx.clarify.map((c) => `- ${c}`).join("\n")}`);
   return parts.join("\n\n");
 }

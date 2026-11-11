@@ -8,8 +8,11 @@ const BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 /** Models to try in order. Aliases always point to Google's current Flash models. */
 function modelChain(): string[] {
   const primary = process.env.GEMINI_MODEL || "gemini-flash-lite-latest";
-  const fallback = process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-latest";
-  return primary === fallback ? [primary] : [primary, fallback];
+  const fallbacks = (process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite,gemini-flash-latest")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  return [...new Set([primary, ...fallbacks])];
 }
 
 function apiKey(): string {
@@ -74,7 +77,7 @@ export async function generate(args: {
               ...(useThinkingConfig ? { thinkingConfig: { thinkingLevel: "low" } } : {}),
             },
           },
-          timeoutMs: 25000,
+          timeoutMs: 15000,
         });
         const text =
           res.data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
@@ -99,8 +102,9 @@ export async function generate(args: {
         if (!shouldTryNext(e)) {
           throw new KakaError({ status: e.status, message: errors.join(" | ") });
         }
-        if (e.status === 429 && attempt < 2 && failures.filter((f) => f.model === model && f.status === 429).length === 1) {
-          await sleep(1500);
+        // Busy / rate-limited: wait a moment and retry the same model once
+        if ((e.status === 429 || e.status === 503) && failures.filter((f) => f.model === model && (f.status === 429 || f.status === 503)).length === 1) {
+          await sleep(1200);
           continue;
         }
         break; // next model

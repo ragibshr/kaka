@@ -26,7 +26,7 @@ export async function GET() {
     gemini: ai,
     models: {
       primary: process.env.GEMINI_MODEL || "gemini-flash-lite-latest",
-      fallback: process.env.GEMINI_FALLBACK_MODEL || "gemini-flash-latest",
+      fallback: process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite,gemini-flash-latest",
     },
   });
 }

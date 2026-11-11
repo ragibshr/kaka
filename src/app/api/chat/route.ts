@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
   // 2. Extract facts and save them
   let saved: ChatApiResponse["saved"] = [];
   let clarify: string[] = [];
+  let extractFailed = false;
   try {
     const ex = await extractItems(text, timeZone);
     await logGeneration(supabase, "extract", ex);
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
     saved = res.saved;
     clarify = res.clarify;
   } catch (err) {
+    extractFailed = true;
     await logApiCall(supabase, { provider: "gemini", endpoint: "extract", status: 500, latencyMs: 0, error: (err as Error).message });
   }
 
@@ -86,6 +88,7 @@ export async function POST(request: NextRequest) {
       todaySummary,
       saved: saved.map((s) => s.label),
       clarify,
+      extractFailed,
       now: localIso(timeZone),
     });
 

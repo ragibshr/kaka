@@ -1,6 +1,7 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Calendar,
   ChevronLeft,
@@ -25,117 +26,152 @@ import {
 } from "lucide-react";
 import { format, subDays, addDays, isToday, isYesterday } from "date-fns";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import { loadEntries, bn, money, MEAL_BN, type EntryRow } from "@/lib/data";
 
-// Types for Dashboard metrics
-interface WorkSummary {
-  hoursWorked: string;
-  punchIn: string;
-  punchOut: string | null;
-  status: "working" | "completed" | "off";
-  breaksDuration: string;
-  tasksCompleted: number;
-}
-
-interface FoodSummary {
-  mealCount: number;
-  totalSpend: number;
-  meals: { time: string; name: string; cost?: number }[];
-}
-
-interface FinanceSummary {
-  spent: number;
-  earned: number;
-  budgetStatus: "safe" | "warning";
-  topCategory: string;
-}
-
-interface HealthSummary {
-  sleepHours: string;
-  waterGlasses: number;
-  targetWater: number;
-  exerciseMinutes: number;
-  mood: string;
-}
-
-interface SocialSummary {
-  callsCount: number;
-  visitsCount: number;
-  notableContacts: string[];
-}
-
-interface CareerSummary {
-  completedItems: number;
-  totalItems: number;
-  keyAchievement: string;
-}
-
-interface DebtsSummary {
-  totalToReceive: number;
-  totalToPay: number;
-  pendingPeopleCount: number;
-}
-
+// Everything shown on the dashboard for one day (all values pre-formatted in Bengali)
 interface DayData {
-  work: WorkSummary;
-  food: FoodSummary;
-  finance: FinanceSummary;
-  health: HealthSummary;
-  social: SocialSummary;
-  career: CareerSummary;
-  debts: DebtsSummary;
+  entryCount: number;
+  work: { hoursWorked: string; punchIn: string; punchOut: string; entries: number; notes: string };
+  food: { mealCount: number; totalSpend: string; meals: { time: string; name: string; cost?: string }[] };
+  finance: { spent: string; earned: string; topCategory: string };
+  health: { sleep: string; drinks: string; exercise: string; mood: string };
+  social: { callsCount: number; visitsCount: number; contacts: string[] };
+  career: { count: number; latest: string };
+  debts: { toReceive: string; toPay: string; net: string; people: number };
+  totalSpent: string;
 }
 
-// TODO: Replace with real Supabase / React Query data fetching for selectedDate
-const placeholderData: DayData = {
-  work: {
-    hoursWorked: "৭ ঘণ্টা ৩০ মি.",
-    punchIn: "০৯:১৫ AM",
-    punchOut: "০৫:৪৫ PM",
-    status: "completed",
-    breaksDuration: "৪৫ মিনিট",
-    tasksCompleted: 4,
-  },
-  food: {
-    mealCount: 3,
-    totalSpend: 420,
-    meals: [
-      { time: "সকাল", name: "পরোটা ও ডিম", cost: 60 },
-      { time: "দুপুর", name: "ভাত, মাছ ও ডাল", cost: 220 },
-      { time: "রাত", name: "চিকেন খিচুড়ি", cost: 140 },
-    ],
-  },
-  finance: {
-    spent: 1250,
-    earned: 0,
-    budgetStatus: "safe",
-    topCategory: "খাবার ও যাতায়াত",
-  },
-  health: {
-    sleepHours: "৭ ঘণ্টা ১৫ মি.",
-    waterGlasses: 7,
-    targetWater: 8,
-    exerciseMinutes: 30,
-    mood: "উৎফুল্ল ও সতেজ",
-  },
-  social: {
-    callsCount: 3,
-    visitsCount: 1,
-    notableContacts: ["মা", "রাহিম", "অফিস টিম"],
-  },
-  career: {
-    completedItems: 2,
-    totalItems: 3,
-    keyAchievement: "সিস্টেম আর্কিটেকচার রিভিউ সমাপ্ত",
-  },
-  debts: {
-    totalToReceive: 2500,
-    totalToPay: 800,
-    pendingPeopleCount: 2,
-  },
-};
+const DASH = "—";
+
+function sumMoney(items: { amount: number; currency: string }[]): string {
+  const totals: Record<string, number> = {};
+  for (const i of items) if (Number.isFinite(i.amount)) totals[i.currency] = (totals[i.currency] ?? 0) + i.amount;
+  const parts = Object.entries(totals).map(([c, v]) => money(v, c));
+  return parts.length ? parts.join(" + ") : money(0, "AED");
+}
+
+function hoursBetween(a?: string, b?: string): number | null {
+  if (!a || !b) return null;
+  const [h1, m1] = a.split(":").map(Number);
+  const [h2, m2] = b.split(":").map(Number);
+  let mins = h2 * 60 + m2 - (h1 * 60 + m1);
+  if (mins < 0) mins += 24 * 60;
+  return mins / 60;
+}
+
+function computeDay(entries: EntryRow[], openDebts: { direction: string; amount: number; currency: string; counterparty: string }[]): DayData {
+  const by = (c: string) => entries.filter((e) => e.category === c).map((e) => (e.detail ?? {}) as Record<string, any>);
+  const work = by("work");
+  const food = by("food");
+  const fin = by("finance");
+  const health = by("health");
+  const social = by("social");
+  const career = by("career");
+
+  const punchIn = work.map((w) => w.punch_in).filter(Boolean).sort()[0] as string | undefined;
+  const punchOut = work.map((w) => w.punch_out).filter(Boolean).sort().reverse()[0] as string | undefined;
+  const loggedHours = work.reduce((s, w) => s + (Number(w.hours) || 0), 0);
+  const hours = loggedHours || hoursBetween(punchIn, punchOut);
+
+  const foodSpend = food.filter((f) => f.cost != null).map((f) => ({ amount: Number(f.cost), currency: f.currency }));
+  const expenses = fin.filter((f) => f.type === "expense").map((f) => ({ amount: Number(f.amount), currency: f.currency }));
+  const income = fin.filter((f) => f.type === "income").map((f) => ({ amount: Number(f.amount), currency: f.currency }));
+  const tags: Record<string, number> = {};
+  for (const f of fin.filter((f) => f.type === "expense")) {
+    const k = f.tag || f.note;
+    if (k) tags[k] = (tags[k] ?? 0) + Number(f.amount);
+  }
+  const topCategory = Object.entries(tags).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+  const last = (rows: Record<string, any>[], kind: string) => rows.filter((h) => h.kind === kind)[0];
+  const sleep = last(health, "sleep");
+  const exercise = health.filter((h) => h.kind === "exercise");
+  const mood = last(health, "mood");
+  const drinks = health.filter((h) => h.kind === "drink");
+
+  const toReceive = openDebts.filter((d) => d.direction === "lent");
+  const toPay = openDebts.filter((d) => d.direction === "borrowed");
+  const netByCur: Record<string, number> = {};
+  for (const d of openDebts) netByCur[d.currency] = (netByCur[d.currency] ?? 0) + (d.direction === "lent" ? d.amount : -d.amount);
+
+  return {
+    entryCount: entries.length,
+    work: {
+      hoursWorked: hours ? `${bn(Math.round(hours * 10) / 10)} ঘণ্টা` : DASH,
+      punchIn: punchIn ? bn(punchIn.slice(0, 5)) : DASH,
+      punchOut: punchOut ? bn(punchOut.slice(0, 5)) : punchIn ? "কর্মরত" : DASH,
+      entries: work.length,
+      notes: work.map((w) => w.notes).filter(Boolean)[0] ?? DASH,
+    },
+    food: {
+      mealCount: food.length,
+      totalSpend: foodSpend.length ? sumMoney(foodSpend) : DASH,
+      meals: food.map((f) => ({
+        time: MEAL_BN[f.meal_type] ?? "খাবার",
+        name: f.description,
+        cost: f.cost != null ? money(f.cost, f.currency) : undefined,
+      })),
+    },
+    finance: {
+      spent: expenses.length ? sumMoney(expenses) : DASH,
+      earned: income.length ? sumMoney(income) : DASH,
+      topCategory: topCategory ?? DASH,
+    },
+    health: {
+      sleep: sleep ? String(sleep.value) : DASH,
+      drinks: drinks.length ? drinks.map((d) => d.value).join(", ") : DASH,
+      exercise: exercise.length ? exercise.map((e) => e.value).join(", ") : DASH,
+      mood: mood ? String(mood.value) : DASH,
+    },
+    social: {
+      callsCount: social.filter((s) => s.channel === "call").length,
+      visitsCount: social.filter((s) => s.channel === "visit").length,
+      contacts: [...new Set(social.map((s) => s.person as string))],
+    },
+    career: { count: career.length, latest: career[0]?.title ?? DASH },
+    debts: {
+      toReceive: toReceive.length ? sumMoney(toReceive) : DASH,
+      toPay: toPay.length ? sumMoney(toPay) : DASH,
+      net: Object.keys(netByCur).length ? Object.entries(netByCur).map(([c, v]) => (v >= 0 ? "+" : "-") + money(Math.abs(v), c)).join(", ") : DASH,
+      people: new Set(openDebts.map((d) => d.counterparty)).size,
+    },
+    totalSpent: foodSpend.length + expenses.length ? sumMoney([...foodSpend, ...expenses]) : money(0, "AED"),
+  };
+}
 
 export default function DashboardPage() {
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
+  const [day, setDay] = useState<DayData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const start = new Date(selectedDate);
+    start.setHours(0, 0, 0, 0);
+    const end = addDays(start, 1);
+    const supabase = createClient();
+    Promise.all([
+      loadEntries(supabase, { from: start.toISOString(), to: end.toISOString() }),
+      supabase
+        .from("debts")
+        .select("direction, amount, currency, counterparty")
+        .is("deleted_at", null)
+        .eq("status", "open"),
+    ]).then(([entries, debts]) => {
+      if (cancelled) return;
+      setDay(
+        computeDay(
+          entries,
+          (debts.data ?? []).map((d) => ({ ...d, amount: Number(d.amount) }))
+        )
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate]);
+
+  const d = day ?? computeDay([], []);
 
   // Date navigation handlers
   const handlePreviousDay = () => setSelectedDate((prev) => subDays(prev, 1));
@@ -245,11 +281,11 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3 text-xs">
             <span className="px-3 py-1.5 bg-white rounded-lg border border-border text-foreground font-medium flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-success" />
-              কাজের স্থিতি: সম্পন্ন
+              কাজ: {d.work.hoursWorked}
             </span>
             <span className="px-3 py-1.5 bg-white rounded-lg border border-border text-foreground font-medium flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-accent" />
-              ব্যয়: ৳ ১,২৫০
+              মোট খরচ: {d.totalSpent}
             </span>
           </div>
         </div>
@@ -269,11 +305,11 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-2xl font-bold text-foreground">
-                  {placeholderData.work.hoursWorked}
+                  {d.work.hoursWorked}
                 </p>
                 <p className="text-xs text-muted flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-                  {placeholderData.work.tasksCompleted} টি টাস্ক সম্পন্ন
+                  {bn(d.work.entries)}টি কাজের এন্ট্রি
                 </p>
               </div>
             </div>
@@ -284,7 +320,7 @@ export default function DashboardPage() {
                   <LogIn className="w-3.5 h-3.5 text-success" /> ইন
                 </span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.work.punchIn}
+                  {d.work.punchIn}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
@@ -292,15 +328,15 @@ export default function DashboardPage() {
                   <LogOut className="w-3.5 h-3.5 text-warning" /> আউট
                 </span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.work.punchOut || "কর্মরত"}
+                  {d.work.punchOut || "কর্মরত"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
                 <span className="flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5" /> বিরতি
+                  <Clock className="w-3.5 h-3.5" /> নোট
                 </span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.work.breaksDuration}
+                  {d.work.notes}
                 </span>
               </div>
             </div>
@@ -320,23 +356,24 @@ export default function DashboardPage() {
               <div className="space-y-1">
                 <div className="flex items-baseline justify-between">
                   <p className="text-2xl font-bold text-foreground">
-                    {placeholderData.food.mealCount} বেলা
+                    {bn(d.food.mealCount)} বেলা
                   </p>
                   <span className="text-sm font-semibold text-foreground">
-                    ৳ {placeholderData.food.totalSpend}
+                    {d.food.totalSpend}
                   </span>
                 </div>
-                <p className="text-xs text-muted">আজকের মোট খাবারের ব্যয়</p>
+                <p className="text-xs text-muted">খাবারে মোট খরচ</p>
               </div>
             </div>
 
             <div className="mt-4 pt-3 border-t border-border/70 space-y-1.5 text-xs">
-              {placeholderData.food.meals.map((meal, idx) => (
+              {d.food.meals.length === 0 && <span className="text-muted">{DASH}</span>}
+              {d.food.meals.map((meal, idx) => (
                 <div key={idx} className="flex items-center justify-between">
                   <span className="text-muted">
                     {meal.time}: <strong className="font-medium text-foreground">{meal.name}</strong>
                   </span>
-                  <span className="text-muted font-medium">৳ {meal.cost}</span>
+                  <span className="text-muted font-medium">{meal.cost}</span>
                 </div>
               ))}
             </div>
@@ -355,11 +392,11 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-2xl font-bold text-foreground">
-                  ৳ {placeholderData.finance.spent}
+                  {d.finance.spent}
                 </p>
                 <p className="text-xs text-muted flex items-center gap-1">
                   <TrendingDown className="w-3.5 h-3.5 text-danger" />
-                  আজকের মোট খরচ
+                  খরচ (খাবার বাদে)
                 </p>
               </div>
             </div>
@@ -367,16 +404,16 @@ export default function DashboardPage() {
             <div className="mt-4 pt-3 border-t border-border/70 space-y-2 text-xs">
               <div className="flex items-center justify-between text-muted">
                 <span className="flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5 text-success" /> আজকের আয়
+                  <TrendingUp className="w-3.5 h-3.5 text-success" /> আয়
                 </span>
                 <span className="font-medium text-foreground">
-                  ৳ {placeholderData.finance.earned}
+                  {d.finance.earned}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
                 <span>শীর্ষ খাত</span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.finance.topCategory}
+                  {d.finance.topCategory}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
@@ -402,11 +439,11 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-2xl font-bold text-foreground">
-                  {placeholderData.health.sleepHours}
+                  {d.health.sleep}
                 </p>
                 <p className="text-xs text-muted flex items-center gap-1">
                   <Moon className="w-3.5 h-3.5 text-accent" />
-                  গভীর ও পর্যাপ্ত ঘুম
+                  ঘুম
                 </p>
               </div>
             </div>
@@ -414,10 +451,10 @@ export default function DashboardPage() {
             <div className="mt-4 pt-3 border-t border-border/70 space-y-2 text-xs">
               <div className="flex items-center justify-between text-muted">
                 <span className="flex items-center gap-1">
-                  <Droplets className="w-3.5 h-3.5 text-blue-500" /> পানি পান
+                  <Droplets className="w-3.5 h-3.5 text-blue-500" /> পানীয়
                 </span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.health.waterGlasses} / {placeholderData.health.targetWater} গ্লাস
+                  {d.health.drinks}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
@@ -425,13 +462,13 @@ export default function DashboardPage() {
                   <Dumbbell className="w-3.5 h-3.5 text-emerald-600" /> শরীরচর্চা
                 </span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.health.exerciseMinutes} মিনিট
+                  {d.health.exercise}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
-                <span>শারীরিক অনুভূতি</span>
+                <span>মেজাজ</span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.health.mood}
+                  {d.health.mood}
                 </span>
               </div>
             </div>
@@ -450,18 +487,19 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-2xl font-bold text-foreground">
-                  {placeholderData.social.callsCount} টি কল
+                  {bn(d.social.callsCount)}টি কল
                 </p>
                 <p className="text-xs text-muted flex items-center gap-1">
-                  {placeholderData.social.visitsCount} টি ব্যক্তিগত সাক্ষাৎ
+                  {bn(d.social.visitsCount)}টি দেখা-সাক্ষাৎ
                 </p>
               </div>
             </div>
 
             <div className="mt-4 pt-3 border-t border-border/70 space-y-1 text-xs">
-              <span className="text-muted block mb-1">গুরুত্বপূর্ণ যোগাযোগ:</span>
+              <span className="text-muted block mb-1">যাদের সাথে কথা হলো:</span>
               <div className="flex flex-wrap gap-1.5">
-                {placeholderData.social.notableContacts.map((contact, i) => (
+                {d.social.contacts.length === 0 && <span className="text-muted">{DASH}</span>}
+                {d.social.contacts.map((contact, i) => (
                   <span
                     key={i}
                     className="px-2 py-0.5 bg-surface text-foreground font-medium rounded-md border border-border"
@@ -486,16 +524,16 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-2xl font-bold text-foreground">
-                  {placeholderData.career.completedItems} / {placeholderData.career.totalItems} সম্পন্ন
+                  {bn(d.career.count)}টি আপডেট
                 </p>
-                <p className="text-xs text-muted">লক্ষ্যমাত্রার কাজ</p>
+                <p className="text-xs text-muted">আবেদন, ইন্টারভিউ, নতুন দক্ষতা</p>
               </div>
             </div>
 
             <div className="mt-4 pt-3 border-t border-border/70 space-y-1.5 text-xs">
-              <span className="text-muted block">দিনের বিশেষ অর্জন:</span>
+              <span className="text-muted block">সর্বশেষ:</span>
               <p className="font-medium text-foreground bg-surface p-2 rounded-lg border border-border">
-                {placeholderData.career.keyAchievement}
+                {d.career.latest}
               </p>
             </div>
           </div>
@@ -513,7 +551,7 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-2xl font-bold text-foreground">
-                  ৳ {placeholderData.debts.totalToReceive - placeholderData.debts.totalToPay}
+                  {d.debts.net}
                 </p>
                 <p className="text-xs text-muted">নিট পাওনা হিসাব</p>
               </div>
@@ -523,32 +561,25 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between text-muted">
                 <span>পাবো (Lent)</span>
                 <span className="font-semibold text-success">
-                  ৳ {placeholderData.debts.totalToReceive}
+                  {d.debts.toReceive}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
                 <span>দেবো (Owe)</span>
                 <span className="font-semibold text-danger">
-                  ৳ {placeholderData.debts.totalToPay}
+                  {d.debts.toPay}
                 </span>
               </div>
               <div className="flex items-center justify-between text-muted">
                 <span>বকেয়া ব্যক্তি</span>
                 <span className="font-medium text-foreground">
-                  {placeholderData.debts.pendingPeopleCount} জন
+                  {bn(d.debts.people)} জন
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Quick Tips / Kaka Note */}
-        <div className="bg-surface border border-border rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-accent flex-shrink-0" />
-          <p className="text-xs md:text-sm text-muted">
-            <strong className="text-foreground">কাকার বার্তা:</strong> তুমি আজকের সব টাস্ক বেশ ভালোভাবে এগিয়ে নিয়েছ। রাতে ঘুমানোর আগে আরেক গ্লাস পানি পান করার পরামর্শ রইল!
-          </p>
-        </div>
       </div>
     </div>
   );

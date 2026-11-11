@@ -1,6 +1,8 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import Link from "next/link";
 import {
   Search,
   Briefcase,
@@ -15,11 +17,14 @@ import {
   Tag,
   Plus,
   SlidersHorizontal,
-  ChevronRight,
   CheckCircle2,
   X,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
+import { discardEntry } from "@/lib/entries";
+import { loadEntries, bn, money, timeBn, dateBn, MEAL_BN, HEALTH_BN, CHANNEL_BN, FIN_BN, type EntryRow } from "@/lib/data";
 
 // Category definitions
 type CategoryKey =
@@ -62,191 +67,108 @@ interface ListEntry {
   status?: "completed" | "pending" | "info";
 }
 
-// TODO: Replace with real Supabase database query / TanStack React Query hooks
-const placeholderEntries: ListEntry[] = [
-  // Work
-  {
-    id: "w1",
-    category: "work",
-    title: "ফ্রন্টএন্ড কম্পোনেন্ট রিফ্যাক্টরিং",
-    subtitle: "KAKA ড্যাশবোর্ড ও লিস্টিং স্ক্রিন তৈরি",
-    time: "দুপুর ০২:১৫",
-    date: "আজ",
-    keyFields: [
-      { label: "সময়কাল", value: "৩ ঘণ্টা" },
-      { label: "প্রকল্প", value: "KAKA Web App" },
-      { label: "স্ট্যাটাস", value: "সম্পন্ন" },
-    ],
-    tag: "ডেভেলপমেন্ট",
-    status: "completed",
-  },
-  {
-    id: "w2",
-    category: "work",
-    title: "সাপ্তাহিক স্প্রিন্ট প্ল্যানিং মিটিং",
-    subtitle: "টিমের সাথে প্রজেক্ট রোডম্যাপ আলোচনা",
-    time: "সকাল ১১:০০",
-    date: "আজ",
-    keyFields: [
-      { label: "সময়কাল", value: "১ ঘণ্টা" },
-      { label: "উপস্থিতি", value: "৬ জন" },
-    ],
-    tag: "মিটিং",
-    status: "completed",
-  },
-
-  // Food
-  {
-    id: "f1",
-    category: "food",
-    title: "দুপুরের খাবার: মাছ-ভাত ও সবজি",
-    subtitle: "ক্যাফেটেরিয়া থেকে দুপুরের লাঞ্চ",
-    time: "দুপুর ০১:৩০",
-    date: "আজ",
-    keyFields: [
-      { label: "ব্যয়", value: "৳ ২২০" },
-      { label: "ধরণ", value: "ভারী খাবার" },
-      { label: "ক্যালোরি", value: "~৬৫০ kcal" },
-    ],
-    tag: "লাঞ্চ",
-    status: "info",
-  },
-  {
-    id: "f2",
-    category: "food",
-    title: "সকালের নাস্তা: ওটস ও ফল",
-    subtitle: "কলা ও কাঠবাদাম সহ দুধ-ওটস",
-    time: "সকাল ০৮:৩০",
-    date: "আজ",
-    keyFields: [
-      { label: "ব্যয়", value: "৳ ৬০" },
-      { label: "ধরণ", value: "স্বাস্থ্যকর" },
-    ],
-    tag: "নাস্তা",
-    status: "info",
-  },
-
-  // Finance
-  {
-    id: "fn1",
-    category: "finance",
-    title: "গ্রোসারি কেনাকাটা",
-    subtitle: "সুপারশপ থেকে নিত্যপ্রয়োজনীয় জিনিসপত্র",
-    time: "সন্ধ্যা ০৬:৪৫",
-    date: "গতকাল",
-    keyFields: [
-      { label: "পরিমাণ", value: "৳ ১,৮৫০" },
-      { label: "লেনদেনের ধরণ", value: "বিকাশ" },
-      { label: "খাত", value: "বাজার" },
-    ],
-    tag: "ব্যয়",
-    status: "info",
-  },
-  {
-    id: "fn2",
-    category: "finance",
-    title: "ফ্রিল্যান্স প্রজেক্টের পেমেন্ট প্রাপ্তি",
-    subtitle: "UI ডিজাইন কাজের প্রথম কিস্তি",
-    time: "বিকাল ০৪:০০",
-    date: "৮ অক্টোবর",
-    keyFields: [
-      { label: "পরিমাণ", value: "+৳ ১৫,০০০" },
-      { label: "পদ্ধতি", value: "ব্যাংক ট্রান্সফার" },
-      { label: "উৎস", value: "ক্লায়েন্ট" },
-    ],
-    tag: "আয়",
-    status: "completed",
-  },
-
-  // Health
-  {
-    id: "h1",
-    category: "health",
-    title: "সন্ধ্যায় জিম ও স্ট্রেচিং",
-    subtitle: "বুকের ব্যায়াম ও ৩০ মিনিট ট্রেডমিল",
-    time: "সন্ধ্যা ০৭:০০",
-    date: "গতকাল",
-    keyFields: [
-      { label: "সময়কাল", value: "৪৫ মিনিট" },
-      { label: "ক্যালোরি বার্ন", value: "৩২০ kcal" },
-      { label: "অনুভূতি", value: "চাঙ্গা" },
-    ],
-    tag: "শরীরচর্চা",
-    status: "completed",
-  },
-  {
-    id: "h2",
-    category: "health",
-    title: "রক্তচাপ ও সুগার চেক",
-    subtitle: "স্বাভাবিক রেঞ্জের মধ্যে রয়েছে",
-    time: "সকাল ০৯:০০",
-    date: "৭ অক্টোবর",
-    keyFields: [
-      { label: "বিপি", value: "১২০/৮০" },
-      { label: "সুগার", value: "৫.৪ mmol/L" },
-    ],
-    tag: "মেডিকেল",
-    status: "completed",
-  },
-
-  // Social
-  {
-    id: "s1",
-    category: "social",
-    title: "বন্ধুদের সাথে আড্ডা ও কফি",
-    subtitle: "ধানমন্ডি লেকে সান্ধ্যকালীন দেখা",
-    time: "রাত ০৮:০০",
-    date: "গত পরশু",
-    keyFields: [
-      { label: "ব্যক্তি", value: "তানভীর, সাকিব" },
-      { label: "সময়কাল", value: "২ ঘণ্টা" },
-      { label: "স্থান", value: "ক্যাফে রেইন" },
-    ],
-    tag: "বন্ধু",
-    status: "info",
-  },
-
-  // Career
-  {
-    id: "c1",
-    category: "career",
-    title: "নেক্সট জেএস ১৫ কোর্স মডিউল সমাপ্ত",
-    subtitle: "সার্ভার অ্যাকশন এবং ক্যাশিং স্ট্র্যাটেজি শেখা",
-    time: "রাত ১০:০০",
-    date: "৬ অক্টোবর",
-    keyFields: [
-      { label: "কোর্স", value: "Advanced Next.js" },
-      { label: "অগ্রগতি", value: "৮০%" },
-      { label: "নোট সংখ্যা", value: "৪টি" },
-    ],
-    tag: "শেখা",
-    status: "completed",
-  },
-
-  // Notes
-  {
-    id: "n1",
-    category: "note",
-    title: "ভবিষ্যত ব্যবসার আইডিয়া: কাকা এআই অ্যাসিস্ট্যান্ট",
-    subtitle: "ব্যক্তিগত ডাটা প্রাইভেসি এবং স্থানীয় ভাষা সমর্থন নিয়ে চিন্তা",
-    time: "দুপুর ১২:০০",
-    date: "৫ অক্টোবর",
-    keyFields: [
-      { label: "ধরন", value: "আইডিয়া" },
-      { label: "অগ্রাধিকার", value: "উচ্চ" },
-    ],
-    tag: "পরিকল্পনা",
-    status: "pending",
-  },
-];
+function toListEntry(e: EntryRow): ListEntry {
+  const d = (e.detail ?? {}) as Record<string, any>;
+  const base = { id: e.id, time: timeBn(e.occurred_at), date: dateBn(e.occurred_at), subtitle: e.raw_text };
+  switch (e.category) {
+    case "work":
+      return {
+        ...base,
+        category: "work",
+        title: d.hours ? `কাজ — ${bn(d.hours)} ঘণ্টা` : "কাজ",
+        keyFields: [
+          ...(d.punch_in ? [{ label: "ঢুকলাম", value: bn(String(d.punch_in).slice(0, 5)) }] : []),
+          ...(d.punch_out ? [{ label: "বের হলাম", value: bn(String(d.punch_out).slice(0, 5)) }] : []),
+          ...(d.notes ? [{ label: "নোট", value: d.notes }] : []),
+        ],
+      };
+    case "food":
+      return {
+        ...base,
+        category: "food",
+        title: d.description || "খাবার",
+        tag: MEAL_BN[d.meal_type] ?? "খাবার",
+        keyFields: d.cost != null ? [{ label: "দাম", value: money(d.cost, d.currency) }] : [],
+      };
+    case "finance":
+    case "debt": {
+      if (e.category === "debt") {
+        return {
+          ...base,
+          category: "finance",
+          title: `${d.counterparty} — ${d.direction === "lent" ? "ধার দিলাম" : "ধার নিলাম"}`,
+          tag: "ধার",
+          keyFields: [{ label: "পরিমাণ", value: money(d.amount, d.currency) }],
+          status: d.status === "settled" ? "completed" : undefined,
+        };
+      }
+      return {
+        ...base,
+        category: "finance",
+        title: d.note || d.counterparty || FIN_BN[d.type] || "লেনদেন",
+        tag: FIN_BN[d.type] ?? "লেনদেন",
+        keyFields: [
+          { label: "পরিমাণ", value: money(d.amount, d.currency) },
+          ...(d.counterparty ? [{ label: "কার সাথে", value: d.counterparty }] : []),
+        ],
+      };
+    }
+    case "health":
+      return {
+        ...base,
+        category: "health",
+        title: `${HEALTH_BN[d.kind] ?? "স্বাস্থ্য"}: ${d.value ?? ""}`,
+        keyFields: d.notes ? [{ label: "নোট", value: d.notes }] : [],
+      };
+    case "social":
+      return {
+        ...base,
+        category: "social",
+        title: d.person || "যোগাযোগ",
+        tag: CHANNEL_BN[d.channel] ?? "যোগাযোগ",
+        keyFields: d.duration_min ? [{ label: "সময়", value: `${bn(d.duration_min)} মিনিট` }] : [],
+      };
+    case "career":
+      return {
+        ...base,
+        category: "career",
+        title: d.title || "ক্যারিয়ার",
+        keyFields: [
+          ...(d.org ? [{ label: "প্রতিষ্ঠান", value: d.org }] : []),
+          ...(d.status ? [{ label: "অবস্থা", value: d.status }] : []),
+        ],
+      };
+    default:
+      return { ...base, category: "note", title: (e.data?.text as string) || e.raw_text, subtitle: undefined, keyFields: [] };
+  }
+}
 
 export default function ListsPage() {
   const [activeTab, setActiveTab] = useState<CategoryKey>("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [entries, setEntries] = useState<ListEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadEntries(createClient())
+      .then((rows) => setEntries(rows.map(toListEntry)))
+      .catch(() => setEntries([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("এই এন্ট্রিটা মুছে ফেলবে?")) return;
+    try {
+      await discardEntry(createClient(), id);
+      setEntries((prev) => prev.filter((e) => e.id !== id));
+    } catch {
+      alert("মুছতে পারলাম না, আবার চেষ্টা করো।");
+    }
+  };
 
   // Filtered entries according to active tab and search query
   const filteredEntries = useMemo(() => {
-    return placeholderEntries.filter((entry) => {
+    return entries.filter((entry) => {
       // Category match
       const matchesCategory =
         activeTab === "all" || entry.category === activeTab;
@@ -267,16 +189,16 @@ export default function ListsPage() {
 
       return matchesCategory && matchesText;
     });
-  }, [activeTab, searchQuery]);
+  }, [entries, activeTab, searchQuery]);
 
   // Category counts
   const categoryCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: placeholderEntries.length };
-    for (const item of placeholderEntries) {
+    const counts: Record<string, number> = { all: entries.length };
+    for (const item of entries) {
       counts[item.category] = (counts[item.category] || 0) + 1;
     }
     return counts;
-  }, []);
+  }, [entries]);
 
   // Category badge colors
   const getCategoryTheme = (category: CategoryKey) => {
@@ -347,16 +269,13 @@ export default function ListsPage() {
           </div>
 
           {/* Quick Action: New entry placeholder */}
-          <button
-            onClick={() => {
-              // TODO: Open modal or drawer for adding new entry
-              alert("নতুন এন্ট্রি যোগ করার সুবিধা শীঘ্রই আসছে!");
-            }}
+          <Link
+            href="/"
             className="flex items-center gap-1.5 px-3 py-2 bg-accent text-white text-xs md:text-sm font-medium rounded-xl hover:bg-accent-hover transition-theme shadow-sm self-start sm:self-auto"
           >
             <Plus className="w-4 h-4" />
-            <span>নতুন এন্ট্রি</span>
-          </button>
+            <span>চ্যাটে লেখো</span>
+          </Link>
         </div>
 
         {/* Search Bar */}
@@ -366,7 +285,7 @@ export default function ListsPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="যেকোনো তথ্য, খরচ, কাজ বা নোট খুঁজুন..."
+            placeholder="যেকোনো তথ্য, খরচ, কাজ বা নোট খোঁজো..."
             className={cn(
               "w-full rounded-xl border border-border bg-surface pl-9 pr-9 py-2.5",
               "text-sm text-foreground placeholder:text-muted",
@@ -422,7 +341,9 @@ export default function ListsPage() {
       {/* List Content Area */}
       {/* pb-20 on mobile to allow clearance for bottom nav bar */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-20 md:pb-6 space-y-3">
-        {filteredEntries.length === 0 ? (
+        {loading ? (
+          <div className="text-center text-sm text-muted py-12">লোড হচ্ছে...</div>
+        ) : filteredEntries.length === 0 ? (
           <div className="bg-white border border-border rounded-xl p-8 text-center space-y-3 max-w-md mx-auto my-12">
             <div className="w-12 h-12 rounded-full bg-surface-2 text-muted mx-auto flex items-center justify-center">
               <Search className="w-6 h-6" />
@@ -432,7 +353,7 @@ export default function ListsPage() {
             </h3>
             <p className="text-xs text-muted">
               {searchQuery
-                ? `"${searchQuery}" এর জন্য কোনো ফলাফল নেই। অন্য কিছু লিখে খুঁজুন।`
+                ? `"${searchQuery}" এর জন্য কোনো ফলাফল নেই। অন্য কিছু লিখে খোঁজো।`
                 : "এই ক্যাটাগরিতে এখনো কোনো এন্ট্রি যোগ করা হয়নি।"}
             </p>
             {searchQuery && (
@@ -440,7 +361,7 @@ export default function ListsPage() {
                 onClick={() => setSearchQuery("")}
                 className="text-xs text-accent font-medium hover:underline pt-2 block mx-auto"
               >
-                অনুসন্ধান মুছুন
+                খোঁজা মুছে দাও
               </button>
             )}
           </div>
@@ -521,13 +442,11 @@ export default function ListsPage() {
                   </div>
 
                   <button
-                    onClick={() => {
-                      // TODO: View or edit item details
-                    }}
-                    className="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-surface transition-theme"
-                    title="বিস্তারিত দেখুন"
+                    onClick={() => handleDelete(entry.id)}
+                    className="p-1.5 rounded-lg text-muted hover:text-danger hover:bg-red-50 transition-theme"
+                    title="মুছে ফেলো"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>

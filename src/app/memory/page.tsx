@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Brain,
   Sparkles,
@@ -17,6 +17,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 // Memory section type
 type MemorySection = "core" | "events" | "patterns";
@@ -33,115 +34,47 @@ interface MemoryItem {
   sourceNote?: string;
 }
 
-// TODO: Replace with real Supabase vector database / memory storage queries
-const initialMemories: MemoryItem[] = [
-  // Core (মূল তথ্য)
-  {
-    id: "m1",
-    section: "core",
-    content: "চা বা কফিতে অতিরিক্ত চিনি পছন্দ করো না, সাধারণত লাল চা বা ব্ল্যাক কফি পান করো।",
-    categoryLabel: "খাবারের পছন্দ",
-    importance: 4,
-    isPinned: true,
-    status: "approved",
-    createdAt: "৩ অক্টোবর ২০২৬",
-    sourceNote: "কথোপকথন থেকে সংরক্ষিত",
-  },
-  {
-    id: "m2",
-    section: "core",
-    content: "তোমার মায়ের জন্মদিন ১৫ নভেম্বর এবং প্রিয় ফুল রজনীগন্ধা।",
-    categoryLabel: "পারিবারিক তথ্য",
-    importance: 5,
-    isPinned: true,
-    status: "approved",
-    createdAt: "১ অক্টোবর ২০২৬",
-    sourceNote: "ব্যবহারকারী সরাসরি উল্লেখ করেছেন",
-  },
-  {
-    id: "m3",
-    section: "core",
-    content: "সামুদ্রিক চিংড়ি মাছে সামান্য এলার্জি রয়েছে।",
-    categoryLabel: "স্বাস্থ্য সতর্কতা",
-    importance: 5,
-    isPinned: false,
-    status: "proposed",
-    createdAt: "আজ সকাল ১০:২০",
-    sourceNote: "কাকার প্রস্তাবিত (আজকের চ্যাট বিশ্লেষণ)",
-  },
-
-  // Events (ঘটনা)
-  {
-    id: "m4",
-    section: "events",
-    content: "১২ অক্টোবর সকাল ১০টায় ক্লায়েন্ট প্রেজেন্টেশন ও ডেমো সেশন নির্ধারিত আছে।",
-    categoryLabel: "কর্মক্ষেত্র",
-    importance: 5,
-    isPinned: true,
-    status: "approved",
-    createdAt: "৫ অক্টোবর ২০২৬",
-    sourceNote: "ক্যালেন্ডার ও মেসেজ",
-  },
-  {
-    id: "m5",
-    section: "events",
-    content: "গত মাসে নেক্সট জেএস প্রজেক্ট সফলভাবে ডেপ্লয় করার জন্য টিম পার্টি হয়েছিল।",
-    categoryLabel: "অর্জন",
-    importance: 3,
-    isPinned: false,
-    status: "approved",
-    createdAt: "২০ সেপ্টেম্বর ২০২৬",
-  },
-  {
-    id: "m6",
-    section: "events",
-    content: "১৮ অক্টোবর বন্ধু তানভীরের বিবাহোত্তর সংবর্ধনা অনুষ্ঠানে যাওয়ার কথা।",
-    categoryLabel: "সামাজিক উৎসব",
-    importance: 4,
-    isPinned: false,
-    status: "proposed",
-    createdAt: "গতকাল সন্ধ্যা",
-    sourceNote: "কাকার প্রস্তাবিত (চ্যাটের বার্তা)",
-  },
-
-  // Patterns (অভ্যাস)
-  {
-    id: "m7",
-    section: "patterns",
-    content: "সাধারণত রাত ১টা থেকে ১:৩০ এর মধ্যে ঘুমাতে যাও এবং সকাল ৮টা থেকে ৮:৩০ এর মধ্যে ঘুম থেকে ওঠো।",
-    categoryLabel: "ঘুমের রুটিন",
-    importance: 4,
-    isPinned: true,
-    status: "approved",
-    createdAt: "২ অক্টোবর ২০২৬",
-    sourceNote: "দৈনিক পাঞ্চ-ইন এবং অ্যাক্টিভিটি প্যাটার্ন",
-  },
-  {
-    id: "m8",
-    section: "patterns",
-    content: "কাজের মাঝে প্রতি দেড় থেকে দুই ঘণ্টা পরপর ১০ মিনিটের ছোট বিরতি নিলে কাজের গতি বাড়ে।",
-    categoryLabel: "কাজের ছন্দ",
-    importance: 3,
-    isPinned: false,
-    status: "approved",
-    createdAt: "২৮ সেপ্টেম্বর ২০২৬",
-  },
-  {
-    id: "m9",
-    section: "patterns",
-    content: "প্রতি শুক্রবার বিকেলে গ্রোসারি বাজার ও আর্থিক হিসাব মেলানোর অভ্যাস গড়ে উঠেছে।",
-    categoryLabel: "সাপ্তাহিক রুটিন",
-    importance: 4,
-    isPinned: false,
-    status: "proposed",
-    createdAt: "আজ দুপুর ০১:০০",
-    sourceNote: "কাকার প্রস্তাবিত (লেনদেন হিস্ট্রি পর্যবেক্ষণ)",
-  },
-];
+const LAYER_TO_SECTION: Record<string, MemorySection> = { core: "core", episodic: "events", pattern: "patterns" };
+const SECTION_TO_LAYER: Record<MemorySection, string> = { core: "core", events: "episodic", patterns: "pattern" };
+const SECTION_LABEL: Record<MemorySection, string> = { core: "মূল তথ্য", events: "ঘটনা", patterns: "অভ্যাস" };
 
 export default function MemoryPage() {
   const [activeSection, setActiveSection] = useState<MemorySection>("core");
-  const [memories, setMemories] = useState<MemoryItem[]>(initialMemories);
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    createClient()
+      .from("memories")
+      .select("id, layer, content, importance, pinned, status, created_at")
+      .is("deleted_at", null)
+      .neq("status", "rejected")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        setMemories(
+          (data ?? []).map((m) => {
+            const section = LAYER_TO_SECTION[m.layer] ?? "core";
+            return {
+              id: m.id,
+              section,
+              content: m.content,
+              categoryLabel: SECTION_LABEL[section],
+              importance: m.importance,
+              isPinned: m.pinned,
+              status: m.status === "approved" ? "approved" : "proposed",
+              createdAt: new Date(m.created_at).toLocaleDateString("bn-BD", { day: "numeric", month: "short" }),
+            } satisfies MemoryItem;
+          })
+        );
+        setLoading(false);
+      });
+  }, []);
+
+  const save = async (id: string, patch: Record<string, unknown>) => {
+    const { error } = await createClient().from("memories").update(patch).eq("id", id);
+    if (error) alert("সেভ করা গেল না, আবার চেষ্টা করো।");
+    return !error;
+  };
   const [searchQuery, setSearchQuery] = useState("");
 
   // Tabs configuration
@@ -152,27 +85,28 @@ export default function MemoryPage() {
   ];
 
   // Actions
-  const handleApprove = (id: string) => {
-    // TODO: Send Supabase mutation to set status='approved'
+  const handleApprove = async (id: string) => {
+    if (!(await save(id, { status: "approved" }))) return;
     setMemories((prev) =>
       prev.map((item) => (item.id === id ? { ...item, status: "approved" } : item))
     );
   };
 
-  const handleReject = (id: string) => {
-    // TODO: Send Supabase mutation to delete or reject item
+  const handleReject = async (id: string) => {
+    if (!(await save(id, { status: "rejected" }))) return;
     setMemories((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("তুমি কি নিশ্চিতভাবে এই তথ্যটি মুছে ফেলতে চাও?")) {
-      // TODO: Delete from Supabase
+      if (!(await save(id, { deleted_at: new Date().toISOString() }))) return;
       setMemories((prev) => prev.filter((item) => item.id !== id));
     }
   };
 
-  const handleTogglePin = (id: string) => {
-    // TODO: Update pinned status in Supabase
+  const handleTogglePin = async (id: string) => {
+    const item = memories.find((m) => m.id === id);
+    if (!item || !(await save(id, { pinned: !item.isPinned }))) return;
     setMemories((prev) =>
       prev.map((item) =>
         item.id === id ? { ...item, isPinned: !item.isPinned } : item
@@ -180,8 +114,8 @@ export default function MemoryPage() {
     );
   };
 
-  const handleUpdateImportance = (id: string, stars: number) => {
-    // TODO: Update importance in Supabase
+  const handleUpdateImportance = async (id: string, stars: number) => {
+    if (!(await save(id, { importance: stars }))) return;
     setMemories((prev) =>
       prev.map((item) =>
         item.id === id ? { ...item, importance: stars } : item
@@ -248,15 +182,20 @@ export default function MemoryPage() {
           </div>
 
           <button
-            onClick={() => {
-              // TODO: Open manual memory creation modal
+            onClick={async () => {
               const newContent = prompt("কাকাকে নতুন কী মনে রাখতে বলতে চাও?");
-              if (newContent) {
+              if (newContent?.trim()) {
+                const { data, error } = await createClient()
+                  .from("memories")
+                  .insert({ layer: SECTION_TO_LAYER[activeSection], content: newContent.trim(), status: "approved", importance: 3 })
+                  .select("id")
+                  .single();
+                if (error || !data) return alert("সেভ করা গেল না, আবার চেষ্টা করো।");
                 const newItem: MemoryItem = {
-                  id: crypto.randomUUID(),
+                  id: data.id,
                   section: activeSection,
                   content: newContent,
-                  categoryLabel: "ব্যক্তিগত নোট",
+                  categoryLabel: SECTION_LABEL[activeSection],
                   importance: 3,
                   isPinned: false,
                   status: "approved",
@@ -343,7 +282,9 @@ export default function MemoryPage() {
           </div>
         )}
 
-        {displayedMemories.length === 0 ? (
+        {loading ? (
+          <div className="text-center text-sm text-muted py-12">লোড হচ্ছে...</div>
+        ) : displayedMemories.length === 0 ? (
           <div className="bg-white border border-border rounded-xl p-8 text-center space-y-2 max-w-md mx-auto my-12">
             <Brain className="w-8 h-8 text-muted mx-auto" />
             <h3 className="text-base font-semibold text-foreground">
@@ -473,6 +414,7 @@ export default function MemoryPage() {
                             onClick={() => {
                               const updated = prompt("তথ্যটি সম্পাদনা করো:", item.content);
                               if (updated && updated.trim()) {
+                                void save(item.id, { content: updated.trim() });
                                 setMemories((prev) =>
                                   prev.map((m) =>
                                     m.id === item.id ? { ...m, content: updated.trim() } : m
@@ -490,7 +432,7 @@ export default function MemoryPage() {
                           <button
                             onClick={() => handleDelete(item.id)}
                             className="p-1.5 rounded-lg border border-border bg-white text-muted hover:text-danger hover:border-danger/30 hover:bg-rose-50 transition-theme"
-                            title="মুছে ফেলুন"
+                            title="মুছে ফেলো"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
